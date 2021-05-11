@@ -120,6 +120,7 @@ class RadiateBackbone(nn.Module):
         self.train(False)
 
     def forward(self, tensor_list: NestedTensor):
+        print(tensor_list.tensors.size())
         xs = self.body(tensor_list.tensors)
         out: Dict[str, NestedTensor] = {}
         for name, x in xs.items():
