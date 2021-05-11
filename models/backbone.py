@@ -97,6 +97,38 @@ class Backbone(BackboneBase):
         num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
+class RadiateBackbone(nn.Module):
+
+    def __init__(self, network: str, setting: str):
+        super().__init__()
+        models_abs = Path(build_backbone.__globals__['__file__']).parent.absolute()
+        cfg_file = os.path.join(models_abs, 'radiate','config', network + '.yaml')
+        weights_file = os.path.join(models_abs, 'radiate','weights',  network +'_' + setting + '.pth')
+        cfg = get_cfg()
+        
+        cfg.merge_from_file(cfg_file)
+        cfg.MODEL.DEVICE = args.device
+        cfg.MODEL.WEIGHTS = weights_file
+        cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (vehicle)
+        cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+        cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8, 16, 32, 64, 128]]
+        rad_rcnn = build_model(cfg)
+        self.body = rad_rcnn.backbone
+        self.num_channels = 2048
+        #Freeze the pre-trained backbone
+        self.train(False)
+
+    def forward(self, tensor_list: NestedTensor):
+        xs = self.body(tensor_list.tensors)
+        out: Dict[str, NestedTensor] = {}
+        for name, x in xs.items():
+            m = tensor_list.mask
+            assert m is not None
+            mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
+            out[name] = NestedTensor(x, mask)
+        return out
+
 
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
@@ -117,26 +149,10 @@ class Joiner(nn.Sequential):
 def build_backbone(args):
     if args.dataset_file == 'radiate':
         #load one of the pretrained radiate sdk RCNN's as a backbone
-        models_abs = Path(build_backbone.__globals__['__file__']).parent.absolute()
         # For now, hard code network and setting
         network = 'faster_rcnn_R_101_FPN_3x' 
         setting = 'good_and_bad_weather_radar'
-        cfg_file = os.path.join(models_abs, 'radiate','config', network + '.yaml')
-        weights_file = os.path.join(models_abs, 'radiate','weights',  network +'_' + setting + '.pth')
-        cfg = get_cfg()
-        
-        cfg.merge_from_file(cfg_file)
-        cfg.MODEL.DEVICE = args.device
-        cfg.MODEL.WEIGHTS = weights_file
-        cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (vehicle)
-        cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
-        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
-        cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8, 16, 32, 64, 128]]
-        rad_rcnn = build_model(cfg)
-        backbone = rad_rcnn.backbone
-        backbone.num_channels = 2048
-        #Freeze the pre-trained backbone
-        backbone.train(False)
+        backbone = RadiateBackbone(network, setting)
     else:    
         train_backbone = args.lr_backbone > 0
         return_interm_layers = args.masks
