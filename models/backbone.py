@@ -99,7 +99,7 @@ class Backbone(BackboneBase):
 
 class RadiateBackbone(nn.Module):
 
-    def __init__(self, network: str, setting: str):
+    def __init__(self, network: str, setting: str, device):
         super().__init__()
         models_abs = Path(build_backbone.__globals__['__file__']).parent.absolute()
         cfg_file = os.path.join(models_abs, 'radiate','config', network + '.yaml')
@@ -107,7 +107,7 @@ class RadiateBackbone(nn.Module):
         cfg = get_cfg()
         
         cfg.merge_from_file(cfg_file)
-        cfg.MODEL.DEVICE = args.device
+        cfg.MODEL.DEVICE = device
         cfg.MODEL.WEIGHTS = weights_file
         cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (vehicle)
         cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
@@ -152,7 +152,7 @@ def build_backbone(args):
         # For now, hard code network and setting
         network = 'faster_rcnn_R_101_FPN_3x' 
         setting = 'good_and_bad_weather_radar'
-        backbone = RadiateBackbone(network, setting)
+        backbone = RadiateBackbone(network, setting, args.device)
     else:    
         train_backbone = args.lr_backbone > 0
         return_interm_layers = args.masks
