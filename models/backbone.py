@@ -137,11 +137,11 @@ def build_backbone(args):
         backbone.num_channels = 2048
         #Freeze the pre-trained backbone
         backbone.train(False)
-    else:
-        position_embedding = build_position_encoding(args)
+    else:    
         train_backbone = args.lr_backbone > 0
         return_interm_layers = args.masks
         backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
+    position_embedding = build_position_encoding(args)
     model = Joiner(backbone, position_embedding)
     model.num_channels = backbone.num_channels
     return model
