@@ -115,10 +115,14 @@ class Joiner(nn.Sequential):
 def build_backbone(args):
     if args.dataset_file == 'radiate':
         #load one of the pretrained radiate sdk RCNN's as a backbone
-        cfg_file = os.path.join('vehicle_detection','test','config' , network + '.yaml')
-        weights_file = os.path.join('vehicle_detection','weights',  network +'_' + setting + '.pth')
+
+        # For now, hard code network and setting
+        network = 'faster_rcnn_R_101_FPN_3x' 
+        setting = 'good_and_bad_weather_radar'
+        cfg_file = os.path.join('radiate','config', network + '.yaml')
+        weights_file = os.path.join('radiate','weights',  network +'_' + setting + '.pth')
         cfg = get_cfg()
-        # add project-specific config (e.g., TensorMask) here if you're not running a model in detectron2's core library
+        
         cfg.merge_from_file(cfg_file)
         cfg.MODEL.DEVICE = args.device
         cfg.MODEL.WEIGHTS = weights_file
@@ -129,7 +133,7 @@ def build_backbone(args):
         rad_rcnn = build_model(cfg)
         backbone = rad_rcnn.backbone
         backbone.num_channels = 2048
-        #For now, let's just freeze these guys
+        #Freeze the pre-trained backbone
         backbone.train(False)
     else:
         position_embedding = build_position_encoding(args)
