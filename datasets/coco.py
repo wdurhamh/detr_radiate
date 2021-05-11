@@ -5,6 +5,9 @@ COCO dataset which returns image_id for evaluation.
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
 """
 from pathlib import Path
+import json
+import os
+import numpy as np
 
 import torch
 import torch.utils.data
@@ -143,16 +146,136 @@ def make_coco_transforms(image_set):
 
     raise ValueError(f'unknown {image_set}')
 
+def radiate_to_coco(root_dir, folders, rrpn=False):
+
+    license_dicts = [{'url':'https://creativecommons.org/licenses/by-nc-sa/4.0/', 'id':1,
+                     'name':'Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License'}]
+    image_dicts = []
+    #For vehcile detection, just a single category
+    category_dicts = [{'supercategory':'vehicle', 'id':0, 'name':'vehicle'}]
+    annotation_dicts = []
+
+    idd = 0
+    an_id = 0
+    folder_size = len(folders)
+
+    for folder in folders:
+        radar_folder = os.path.join(root_dir, folder, 'Navtech_Cartesian')
+        annotation_path = os.path.join(root_dir,
+                                       folder, 'annotations', 'annotations.json')
+        with open(annotation_path, 'r') as f_annotation:
+            annotation = json.load(f_annotation)
+
+        radar_files = os.listdir(radar_folder)
+        radar_files.sort()
+
+        for frame_number in range(len(radar_files)):
+            record = {}
+            objs = []
+            bb_created = False
+            idd += 1
+            filename = os.path.join(
+                radar_folder, radar_files[frame_number])
+
+            if (not os.path.isfile(filename)):
+                print(filename)
+                continue
+            record["license"] = 1
+            record["file_name"] = filename
+            record["id"] = idd
+            record["height"] = 1152
+            record["width"] = 1152
+
+            image_dicts.append(record)
+
+            for object in annotation:
+                if (object['bboxes'][frame_number]):
+                    class_obj = object['class_name']
+                    if (class_obj != 'pedestrian' and class_obj != 'group_of_pedestrians'):
+                        bbox = object['bboxes'][frame_number]['position']
+                        angle = object['bboxes'][frame_number]['rotation']
+                        bb_created = True
+                        if rrpn:
+                            cx = bbox[0] + bbox[2] / 2
+                            cy = bbox[1] + bbox[3] / 2
+                            wid = bbox[2]
+                            hei = bbox[3]
+                            obj = {
+                                "bbox": [cx, cy, wid, hei, angle],
+                                #"bbox_mode": BoxMode.XYWHA_ABS,
+                                "category_id": 0,
+                                "iscrowd": 0,
+                                "area" : wid*hei
+                            }
+                        else:
+                            xmin, ymin, xmax, ymax = gen_boundingbox(
+                                bbox, angle)
+                            obj = {
+                                "bbox": [xmin, ymin, xmax, ymax],
+                                #"bbox_mode": BoxMode.XYXY_ABS,
+                                "category_id": 0,
+                                "iscrowd": 0,
+                                "area": (xmax-xmin)*(ymax-ymin)
+                            }
+                        obj["image_id"] = idd
+                        obj["id"] = an_id
+                        an_id += 1 
+
+                        annotation_dicts.append(obj)
+    return {"licenses":license_dicts, "images":image_dicts, "annotations":annotation_dicts,
+            "categories":category_dicts}
+
+def gen_boundingbox(bbox, angle):
+    theta = np.deg2rad(-angle)
+    R = np.array([[np.cos(theta), -np.sin(theta)],
+                  [np.sin(theta), np.cos(theta)]])
+    points = np.array([[bbox[0], bbox[1]],
+                       [bbox[0] + bbox[2], bbox[1]],
+                       [bbox[0] + bbox[2], bbox[1] + bbox[3]],
+                       [bbox[0], bbox[1] + bbox[3]]]).T
+
+    cx = bbox[0] + bbox[2] / 2
+    cy = bbox[1] + bbox[3] / 2
+    T = np.array([[cx], [cy]])
+
+    points = points - T
+    points = np.matmul(R, points) + T
+    points = points.astype(int)
+
+    min_x = np.min(points[0, :])
+    min_y = np.min(points[1, :])
+    max_x = np.max(points[0, :])
+    max_y = np.max(points[1, :])
+
+    #cast to standard ints to allow for json serialization
+    return int(min_x), int(min_y), int(max_x), int(max_y)
 
 def build(image_set, args):
-    root = Path(args.coco_path)
+    root = Path(args.coco_path).absolute()
     assert root.exists(), f'provided COCO path {root} does not exist'
-    mode = 'instances'
-    PATHS = {
-        "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-    }
 
-    img_folder, ann_file = PATHS[image_set]
+    if args.dataset_file == 'radiate':
+        img_folder = root / image_set
+        folders=[]
+        #TODO - don't hard code this
+        if image_set == 'train':
+            folders = ['city_1_0', 'city_1_1']
+        else:
+            folders = ['city_1_3']
+        #TODO - use distinct test/val sets
+        folders=['tiny_foggy']
+        json_dict = radiate_to_coco(img_folder, folders)
+        #save as a file so we can then read it in 
+        ann_file = img_folder / 'coco_annotations.json'
+        with open(ann_file, 'w') as outfile:
+            json.dump(json_dict, outfile)
+    else:
+        mode = 'instances'
+        PATHS = {
+            "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
+            "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
+        }
+
+        img_folder, ann_file = PATHS[image_set]
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
     return dataset

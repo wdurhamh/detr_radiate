@@ -11,6 +11,9 @@ from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 from typing import Dict, List
 
+from detectron2.config import get_cfg
+from detectron2.modeling import build_model
+
 from util.misc import NestedTensor, is_main_process
 
 from .position_encoding import build_position_encoding
@@ -110,10 +113,29 @@ class Joiner(nn.Sequential):
 
 
 def build_backbone(args):
-    position_embedding = build_position_encoding(args)
-    train_backbone = args.lr_backbone > 0
-    return_interm_layers = args.masks
-    backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
+    if args.dataset_file == 'radiate':
+        #load one of the pretrained radiate sdk RCNN's as a backbone
+        cfg_file = os.path.join('vehicle_detection','test','config' , network + '.yaml')
+        weights_file = os.path.join('vehicle_detection','weights',  network +'_' + setting + '.pth')
+        cfg = get_cfg()
+        # add project-specific config (e.g., TensorMask) here if you're not running a model in detectron2's core library
+        cfg.merge_from_file(cfg_file)
+        cfg.MODEL.DEVICE = args.device
+        cfg.MODEL.WEIGHTS = weights_file
+        cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1  # only has one class (vehicle)
+        cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+        cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8, 16, 32, 64, 128]]
+        rad_rcnn = build_model(cfg)
+        backbone = rad_rcnn.backbone
+        backbone.num_channels = 2048
+        #For now, let's just freeze these guys
+        backbone.train(False)
+    else:
+        position_embedding = build_position_encoding(args)
+        train_backbone = args.lr_backbone > 0
+        return_interm_layers = args.masks
+        backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
     model = Joiner(backbone, position_embedding)
     model.num_channels = backbone.num_channels
     return model
