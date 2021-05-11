@@ -116,12 +116,12 @@ class Joiner(nn.Sequential):
 def build_backbone(args):
     if args.dataset_file == 'radiate':
         #load one of the pretrained radiate sdk RCNN's as a backbone
-
+        models_abs = Path(build_backbone.__globals__['__file__']).parent.absolute()
         # For now, hard code network and setting
         network = 'faster_rcnn_R_101_FPN_3x' 
         setting = 'good_and_bad_weather_radar'
-        cfg_file = os.path.join('radiate','config', network + '.yaml')
-        weights_file = os.path.join('radiate','weights',  network +'_' + setting + '.pth')
+        cfg_file = os.path.join(models_abs, 'radiate','config', network + '.yaml')
+        weights_file = os.path.join(models_abs, 'radiate','weights',  network +'_' + setting + '.pth')
         cfg = get_cfg()
         
         cfg.merge_from_file(cfg_file)
